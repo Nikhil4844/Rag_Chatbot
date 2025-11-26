@@ -14,28 +14,31 @@ def process_json(json_obj):
     assert isinstance(json_obj, list), "JSON must be a list of transaction dicts"
     return json_obj
 
-st.title("RAG Chatbot - Upload any transaction JSON")
+st.title("RAG Chatbot - Upload Transaction JSON")
 
-uploaded_file = st.file_uploader("Upload a JSON file containing transactions", type=["json"])
+uploaded_file = st.file_uploader("Upload your JSON file", type=["json"])
 data = None
-
 if uploaded_file:
     try:
         json_obj = json.load(uploaded_file)
         data = process_json(json_obj)
-        st.success("JSON file loaded and parsed successfully.")
+        st.success("JSON loaded and parsed!")
     except Exception as e:
-        st.error(f"Error loading JSON: {e}")
+        st.error(f"Error: {e}")
 
 if data:
     texts = [transaction_sentence(tr) for tr in data]
     vectorizer = TfidfVectorizer()
     embeddings = vectorizer.fit_transform(texts).toarray()
 
-    query = st.text_input("Ask your question about the transactions")
-    top_k = st.slider("Number of retrieved results", 1, 5, 3)
+    query = st.text_input("Ask your question about transactions")
+    top_k = 4
 
-    answer, show_info = None, False
+    answer = None
+    show_info = False
+    show_month_chart = False
+    show_product_chart = False
+
     if query:
         query_emb = vectorizer.transform([query]).toarray()
         sims = cosine_similarity(query_emb, embeddings)[0]
@@ -48,6 +51,11 @@ if data:
             answer = None
             show_info = True
         else:
+            if "spend per month" in q or "monthly spend" in q or "monthly transaction" in q or "transactions in" in q:
+                show_month_chart = True
+            if "most often" in q or "most common product" in q or "frequently purchased product" in q or "product chart" in q:
+                show_product_chart = True
+
             if "total spending" in q:
                 for cust in customers:
                     if cust.lower() in q:
@@ -58,7 +66,7 @@ if data:
                     if cust.lower() in q:
                         purchases = [f"{tr['product']} for ₹{tr['amount']} on {tr['date']}" for tr in data if tr['customer'].lower() == cust.lower()]
                         answer = f"{cust}'s purchases: " + ", ".join(purchases)
-            elif "transactions in" in q or "monthly transaction" in q:
+            elif "transactions in" in q or "monthly transaction" in q or "spend per month" in q:
                 for month in months:
                     if month in q:
                         trans = [transaction_sentence(tr) for tr in data if tr['date'].startswith(month)]
@@ -67,32 +75,34 @@ if data:
                 amounts = [tr['amount'] for tr in data]
                 avg = round(sum(amounts)/len(amounts),2)
                 answer = f"Average transaction amount is ₹{avg}."
-            elif "most often" in q or "most common product" in q or "most frequently purchased product" in q:
+            elif "most often" in q or "most common product" in q or "frequently purchased product" in q:
                 prod = Counter(tr['product'] for tr in data).most_common(1)[0][0]
                 answer = f"Product purchased most often is {prod}."
 
         if answer:
-            st.success(answer)
+            st.success(f"Answer: {answer}")
         elif show_info:
-            st.info("No relevant information found for your query in the uploaded data.")
+            st.info("No relevant information found for your query.")
 
-    st.markdown("## Charts (auto-update based on uploaded file)")
-    # Spend per month
-    months_chart = [tr['date'][:7] for tr in data]
-    month_spend = {}
-    for m in set(months_chart):
-        month_spend[m] = sum(tr['amount'] for tr in data if tr['date'].startswith(m))
-    fig, ax = plt.subplots()
-    ax.bar(month_spend.keys(), month_spend.values())
-    ax.set_title("Spend per Month")
-    st.pyplot(fig)
+        # Chart rendering context
+        # Show month chart only if query is about monthly/month/transactions
+        if show_month_chart:
+            months_chart = [tr['date'][:7] for tr in data]
+            month_spend = {}
+            for m in set(months_chart):
+                month_spend[m] = sum(tr['amount'] for tr in data if tr['date'].startswith(m))
+            fig, ax = plt.subplots()
+            ax.bar(month_spend.keys(), month_spend.values())
+            ax.set_title("Spend per Month")
+            st.pyplot(fig)
 
-    # Most frequent product
-    prod_counts = Counter(tr['product'] for tr in data)
-    fig2, ax2 = plt.subplots()
-    ax2.pie(prod_counts.values(), labels=prod_counts.keys(), autopct="%1.1f%%")
-    ax2.set_title("Most Frequently Purchased Product")
-    st.pyplot(fig2)
+        # Show product chart only for relevant queries
+        if show_product_chart:
+            prod_counts = Counter(tr['product'] for tr in data)
+            fig2, ax2 = plt.subplots()
+            ax2.pie(prod_counts.values(), labels=prod_counts.keys(), autopct="%1.1f%%")
+            ax2.set_title("Most Frequently Purchased Product")
+            st.pyplot(fig2)
 
 else:
     st.info("Upload a JSON file to get started.")
